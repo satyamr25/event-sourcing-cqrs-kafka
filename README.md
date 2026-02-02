@@ -1,27 +1,33 @@
 # Event Sourcing + CQRS using Kafka
 
 ## Overview
-This project demonstrates **Event Sourcing with CQRS** using **Spring Boot**, **Apache Kafka**, and **Docker**.
+This project demonstrates a **CQRS (Command Query Responsibility Segregation)** and **Event Sourcing** based microservices architecture using **Apache Kafka, Spring Boot, Docker, and Feign Client**.
 
-Instead of persisting state directly in a database, the system stores **immutable domain events** in Kafka.
-Read models are built **asynchronously** by consuming these events.
+The system is designed to show:
 
-This project is designed to showcase **microservices**, **event-driven architecture**, and **containerization**.
+- Asynchronous, event-driven communication using Kafka
+- Synchronous inter-service communication using REST (Feign Client)
+- Clean separation of write and read responsibilities (CQRS)
+- Containerized microservices orchestrated via Docker Compose
 
 ---
 
 ## Architecture
 
 ### Microservices
-- **Command Service**
-    - Exposes REST APIs to create/update orders
-    - Validates requests
-    - Publishes domain events to Kafka
+- **Command Service (Write Side)**
+    - Accepts write requests (commands) via REST
+    - Validates input and creates domain events
+    - Publishes events to Kafka
+    - Acts as the source of business rules
+    - Exposes a read-only internal REST API for capability checks (used by Feign)
 
-- **Query Service**
+- **Query Service (Read Side)**
     - Consumes Kafka events
-    - Builds read-optimized views
-    - Exposes REST APIs for querying data
+    - Builds read-optimized projections
+    - Exposes GET APIs for querying data
+    - Uses Feign Client to synchronously call the Command Service for read-side enrichment 
+    - Does not publish events or modify state
 
 - **Audit Service**
     - Consumes Kafka events
@@ -31,13 +37,39 @@ This project is designed to showcase **microservices**, **event-driven architect
 ---
 
 ## Communication Patterns
-- **REST APIs**
-    - Synchronous communication (Feign Client / REST)
-    - Used for validation and direct queries
+- **Kafka (Asynchronous)**
+  #### Used for **core business** communication:
+    ```
+    Command Service → Kafka → Query Service
+                              Audit Service
+    ```
+    - Decoupled 
+    - Event-driven 
+    - Eventually consistent 
+    - Replayable event history
 
-- **Kafka**
-    - Asynchronous, event-driven communication
-    - Used for event sourcing and CQRS projections
+
+- **Feign (Synchronous)**
+  #### Used for read-side enrichment only::
+    ```
+    Query Service → Feign → Command Service
+    ```
+    - Read-only internal API 
+    - No state mutation 
+    - No CQRS violation 
+    - Demonstrates REST-based microservice communication
+
+---
+
+## CQRS Design Rationale
+| Rule                        | How it is enforced                       |
+| --------------------------- | ---------------------------------------- |
+| Commands change state       | Only Command Service handles writes      |
+| Queries never change state  | Query Service is read-only               |
+| No sync calls in write flow | Writes use Kafka only                    |
+| Loose coupling              | Services communicate via events          |
+| REST without CQRS violation | Feign used only for read-side enrichment |
+
 
 ---
 
@@ -46,6 +78,7 @@ This project is designed to showcase **microservices**, **event-driven architect
 - Spring Boot
 - Spring Kafka
 - Apache Kafka & Zookeeper
+- Feign
 - Spring Data JPA
 - H2 Database (In-memory)
 - Docker & Docker Compose
@@ -57,20 +90,24 @@ This project is designed to showcase **microservices**, **event-driven architect
 event-sourcing-cqrs-kafka
 │
 ├── command-service
-│   ├── controller
-│   ├── service
 │   ├── config
+│   ├── controller
+│   ├── dto
+│   ├── internal
+│   ├── service
 │   └── CommandServiceApplication.java
 │
 ├── query-service
-│   ├── controller
+│   ├── client
+│   ├── config
 │   ├── consumer
+│   ├── controller
+│   ├── model
 │   ├── repository
 │   └── QueryServiceApplication.java
 │
 ├── audit-service
 │   ├── consumer
-│   ├── repository
 │   └── AuditServiceApplication.java
 │
 ├── common-events
@@ -79,6 +116,23 @@ event-sourcing-cqrs-kafka
 ├── docker-compose.yml
 └── README.md
 ```
+
+---
+
+## End-to-End Flow
+**Write Flow**
+
+1. Client sends POST /orders 
+2. Command Service publishes OrderCreatedEvent to Kafka 
+3. Query Service consumes event and updates read DB 
+4. Audit Service consumes event and stores audit log
+
+**Read Flow**
+
+1. Client calls GET /orders/{orderId} 
+2. Query Service reads data from read DB 
+3. Query Service calls Command Service via Feign for capabilities 
+4. Combined response is returned to client
 
 ---
 
@@ -127,9 +181,16 @@ Response:
 - `200 OK`
 ```json  
 {
-  "orderId": "ORD-1001",
-  "amount": 1500.0,
-  "createdAt": "2026-02-02T21:04:59.945365Z"
+  "order": {
+    "orderId": "ORD-1001",
+    "amount": 1500.0,
+    "createdAt": "2026-02-02T22:33:26.826262Z"
+  },
+  "capabilities": {
+    "canCancel": true,
+    "canModify": false,
+    "status": "ACTIVE"
+  }
 }
 ```
 
@@ -140,20 +201,6 @@ Response:
 ```bash
 docker logs audit-service
 ```
-
----
-
-## Kafka Topics
-- `order-events` – Stores all order-related domain events
-
----
-
-## Key Concepts Demonstrated
-- Event Sourcing
-- CQRS (Command Query Responsibility Segregation)
-- Microservices Architecture
-- Kafka-based Event Streaming
-- Dockerized Services
 
 ---
 
