@@ -7,6 +7,8 @@
         <option value="$PROJECT_DIR$/audit-service/pom.xml" />
         <option value="$PROJECT_DIR$/command-service/pom.xml" />
         <option value="$PROJECT_DIR$/query-service/pom.xml" />
+        <option value="$PROJECT_DIR$/pom.xml" />
+        <option value="$PROJECT_DIR$/common-events/pom.xml" />
       </list>
     </option>
   </component>
